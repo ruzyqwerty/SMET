@@ -1,0 +1,2 @@
+# SMET
+ScreenMakerEasyTranslator
