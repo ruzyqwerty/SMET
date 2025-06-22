@@ -1,16 +1,24 @@
 import tkinter as tk
+import tkinter.font as tkFont
+import textwrap
 import keyboard
 import mss
 from PIL import Image, ImageOps
 from deep_translator import GoogleTranslator
 import pytesseract
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+import os
 
+
+pytesseract.pytesseract.tesseract_cmd = r"D:\Programs\Tesseract-OCR\tesseract.exe"
 
 
 def translate_text(text, src='en', dest='ru'):
-    translated = GoogleTranslator(source=src, target=dest).translate(text)
-    print("\n--- Перевод ---\n", translated)
+    try:
+        translated = GoogleTranslator(source=src, target=dest).translate(text)
+    except Exception as e:
+        print("Ошибка перевода:", e)
+        translated = "[ошибка перевода]"
+    print("\n--- Перевод ---\n", translated, sep='')
     return translated
 
 
@@ -18,25 +26,74 @@ def ocr_image(path="preprocessed.png"):
     from PIL import Image
     img = Image.open(path)
     text = pytesseract.image_to_string(img, lang='eng')
-    print("\n--- Распознанный текст ---\n", text, sep='')
-    return text.strip()
+
+    # Удаляем лишние переводы строк, оставляем только пробелы
+    cleaned_text = " ".join(line.strip() for line in text.splitlines() if line.strip())
+    print("\n--- Распознанный текст ---\n", cleaned_text)
+    return cleaned_text
 
 
-def show_popup(text):
+def show_popup(text, x, y, max_width_px):
     popup = tk.Tk()
-    popup.title("Перевод")
+    popup.overrideredirect(True)
+    popup.attributes("-alpha", 0.9)
     popup.attributes("-topmost", True)
-    popup.geometry("600x300")
 
-    # Автоматическое закрытие по ESC или клику
+    # Шрифт и параметры
+    font = tkFont.Font(family="Arial", size=14)
+    padding = 20
+    max_win_width = min(600, max_width_px)
+    max_win_height = 400
+
+    # Оценка символов в строке
+    avg_char_width = font.measure("n")
+    max_chars_per_line = max(10, (max_win_width - padding) // avg_char_width)
+
+    # Обёртка текста
+    wrapped_text = textwrap.fill(text, width=max_chars_per_line)
+    lines = wrapped_text.splitlines()
+
+    line_height = font.metrics("linespace")
+    text_width = font.measure(max(lines, key=len)) + padding
+    text_height = line_height * len(lines) + padding
+
+    window_width = max(160, min(text_width, max_win_width))
+    window_height = min(text_height, max_win_height)
+
+    # Позиция: не выходить за экран
+    screen_w = popup.winfo_screenwidth()
+    screen_h = popup.winfo_screenheight()
+    x = min(max(0, x), screen_w - window_width)
+    y = min(max(0, y), screen_h - window_height)
+
+    popup.geometry(f"{window_width}x{window_height}+{x}+{y}")
+
+    # Закрытие
     popup.bind("<Escape>", lambda e: popup.destroy())
     popup.bind("<Button-1>", lambda e: popup.destroy())
 
-    # Текстовое поле
-    label = tk.Text(popup, wrap="word", font=("Arial", 14), padx=10, pady=10)
-    label.insert("1.0", text)
-    label.config(state="disabled", bg="white")
-    label.pack(expand=True, fill="both")
+    # ===== scrollable Text =====
+    frame = tk.Frame(popup)
+    frame.pack(fill="both", expand=True)
+
+    scrollbar = tk.Scrollbar(frame)
+    scrollbar.pack(side="right", fill="y")
+
+    text_widget = tk.Text(
+        frame,
+        wrap="word",
+        font=font,
+        bg="white",
+        fg="black",
+        padx=10,
+        pady=10,
+        yscrollcommand=scrollbar.set
+    )
+    text_widget.insert("1.0", wrapped_text)
+    text_widget.config(state="disabled")
+    text_widget.pack(fill="both", expand=True)
+
+    scrollbar.config(command=text_widget.yview)
 
     popup.mainloop()
 
@@ -122,7 +179,14 @@ def select_area_and_screenshot():
 
     text = ocr_image("preprocessed.png")
     translated = translate_text(text)
-    show_popup(translated)
+
+    os.remove("screenshot.png")
+    os.remove("preprocessed.png")
+
+    if translated == "":
+        return
+
+    show_popup(translated, x1, y1, x2 - x1)
 
 
 keyboard.add_hotkey('f9', select_area_and_screenshot)
